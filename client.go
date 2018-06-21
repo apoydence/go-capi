@@ -36,6 +36,174 @@ func NewClient(addr, appGuid, spaceGuid string, interval time.Duration, d Doer) 
 	}
 }
 
+type HealthCheck struct {
+	Type string `json:"type"`
+	Data struct {
+		Timeout           int    `json:"timeout"`
+		InvocationTimeout int    `json:"invocation_timeout"`
+		Endpoint          string `json:"endpoint"`
+	} `json:"data"`
+}
+
+type Links struct {
+	Href   string `json:"href"`
+	Method string `json:"method"`
+}
+
+type Process struct {
+	Type        string           `json:"type"`
+	Command     string           `json:"command"`
+	Instances   int              `json:"instances"`
+	MemoryInMB  int              `json:"memory_in_mb"`
+	DiskInMB    int              `json:"disk_in_mb"`
+	HealthCheck HealthCheck      `json:"health_check"`
+	Guid        string           `json:"guid"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+	Links       map[string]Links `json:"links"`
+}
+
+type ProcessStats struct {
+	Type  string `json:"type"`
+	Index int    `json:"index"`
+	State string `json:"state"`
+	Usage struct {
+		Time time.Time `json:"time"`
+		CPU  float64   `json:"cpu"`
+		Mem  float64   `json:"mem"`
+		Disk int       `json:"disk"`
+	} `json:"usage"`
+	Host      string `json:"host"`
+	Uptime    int    `json:"uptime"`
+	MemQuota  int    `json:"mem_quota"`
+	DiskQuota int    `json:"disk_quota"`
+	FdsQuota  int    `json:"fds_quota"`
+}
+
+func (c *Client) Processes(ctx context.Context, appGuid string) ([]Process, error) {
+	addr := c.addr
+	var processes []Process
+
+	for {
+		u, err := url.Parse(addr)
+		if err != nil {
+			return nil, err
+		}
+		u.Path = fmt.Sprintf("/v3/apps/%s/processes", appGuid)
+
+		req := &http.Request{
+			URL:    u,
+			Method: "GET",
+			Header: http.Header{},
+		}
+		req = req.WithContext(ctx)
+
+		resp, err := c.doer.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		defer func() {
+			io.Copy(ioutil.Discard, resp.Body)
+			resp.Body.Close()
+		}()
+
+		if resp.StatusCode != 200 {
+			data, _ := ioutil.ReadAll(resp.Body)
+			return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, data)
+		}
+
+		var results struct {
+			Pagination struct {
+				Next struct {
+					Href string `json:"href"`
+				} `json:"next"`
+			} `json:"pagination"`
+			Resources []Process `json:"resources"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+			return nil, err
+		}
+
+		// Replace HTTPS with HTTP so the HTTP_PROXY can do the work for us
+		results.Pagination.Next.Href = strings.Replace(results.Pagination.Next.Href, "https", "http", 1)
+
+		for _, t := range results.Resources {
+			processes = append(processes, t)
+		}
+
+		if results.Pagination.Next.Href != "" {
+			addr = results.Pagination.Next.Href
+			continue
+		}
+
+		return processes, nil
+	}
+}
+
+func (c *Client) ProcessStats(ctx context.Context, processGuid string) ([]ProcessStats, error) {
+	addr := c.addr
+	var stats []ProcessStats
+
+	for {
+		u, err := url.Parse(addr)
+		if err != nil {
+			return nil, err
+		}
+		u.Path = fmt.Sprintf("/v3/processes/%s/stats", processGuid)
+
+		req := &http.Request{
+			URL:    u,
+			Method: "GET",
+			Header: http.Header{},
+		}
+		req = req.WithContext(ctx)
+
+		resp, err := c.doer.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		defer func() {
+			io.Copy(ioutil.Discard, resp.Body)
+			resp.Body.Close()
+		}()
+
+		if resp.StatusCode != 200 {
+			data, _ := ioutil.ReadAll(resp.Body)
+			return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, data)
+		}
+
+		var results struct {
+			Pagination struct {
+				Next struct {
+					Href string `json:"href"`
+				} `json:"next"`
+			} `json:"pagination"`
+			Resources []ProcessStats `json:"resources"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+			return nil, err
+		}
+
+		// Replace HTTPS with HTTP so the HTTP_PROXY can do the work for us
+		results.Pagination.Next.Href = strings.Replace(results.Pagination.Next.Href, "https", "http", 1)
+
+		for _, t := range results.Resources {
+			stats = append(stats, t)
+		}
+
+		if results.Pagination.Next.Href != "" {
+			addr = results.Pagination.Next.Href
+			continue
+		}
+
+		return stats, nil
+	}
+}
+
 func (c *Client) GetAppGuid(ctx context.Context, appName string) (string, error) {
 	u, err := url.Parse(fmt.Sprintf("%s/v2/apps?q=name%%3A%s&q=space_guid%%3A%s", c.addr, appName, c.spaceGuid))
 	if err != nil {

@@ -24,6 +24,290 @@ type TC struct {
 	c       *capi.Client
 }
 
+func TestProcesses(t *testing.T) {
+	t.Parallel()
+	o := onpar.New()
+	defer o.Run(t)
+
+	o.BeforeEach(func(t *testing.T) TC {
+		spyDoer := newSpyDoer()
+
+		spyDoer.m["GET:http://some-addr.com/v3/apps/some-guid/processes"] = &http.Response{
+			StatusCode: 200,
+			Body: ioutil.NopCloser(strings.NewReader(
+				`{
+					"pagination": {
+					  "next": {
+					    "href": "https://some-addr.com/v3/apps/some-guid/processes?page=2&per_page=2"
+					  }
+					},
+					"resources":[
+                       {
+                          "guid": "proc-1",
+                          "type": "web",
+                          "command": "some-command",
+                          "instances": 2,
+                          "memory_in_mb": 64,
+                          "disk_in_mb": 100,
+                          "health_check": {
+                             "type": "port",
+                             "data": {
+                                "timeout": null,
+                                "invocation_timeout": null
+                             }
+                          },
+                          "created_at": "2018-06-08T16:27:19Z",
+                          "updated_at": "2018-06-20T23:16:27Z",
+                          "links": {
+                             "self": {
+                                "href": "https://some-addr.com/v3/processes/some-guid"
+                             },
+                             "scale": {
+                                "href": "https://some-addr.com/v3/processes/some-guid/actions/scale",
+                                "method": "POST"
+                             },
+                             "app": {
+                                "href": "https://some-addr.com/v3/apps/some-guid"
+                             },
+                             "space": {
+                                "href": "https://some-addr.com/v3/spaces/3bc0de04-2987-40af-940e-fbdd06cdcfbf"
+                             },
+                             "stats": {
+                                "href": "https://some-addr.com/v3/processes/some-guid/stats"
+                             }
+                          }
+                       }
+					]
+				}`,
+			)),
+		}
+
+		spyDoer.m["GET:http://some-addr.com/v3/apps/some-guid/processes?page=2&per_page=2"] = &http.Response{
+			StatusCode: 200,
+			Body: ioutil.NopCloser(strings.NewReader(
+				`{
+					"resources":[
+                       {
+                          "guid": "proc-2"
+                       }
+					]
+				}`,
+			)),
+		}
+
+		return TC{
+			T:       t,
+			spyDoer: spyDoer,
+			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", time.Millisecond, spyDoer),
+		}
+	})
+
+	o.Spec("it hits CAPI correct", func(t TC) {
+		processes, err := t.c.Processes(context.Background(), "some-guid")
+		Expect(t, err).To(BeNil())
+
+		t1, err := time.Parse(time.RFC3339, "2018-06-08T16:27:19Z")
+		Expect(t, err).To(BeNil())
+		t2, err := time.Parse(time.RFC3339, "2018-06-20T23:16:27Z")
+		Expect(t, err).To(BeNil())
+
+		Expect(t, processes).To(Equal([]capi.Process{
+			{
+				Guid:       "proc-1",
+				Type:       "web",
+				Command:    "some-command",
+				Instances:  2,
+				MemoryInMB: 64,
+				DiskInMB:   100,
+				HealthCheck: capi.HealthCheck{
+					Type: "port",
+				},
+				CreatedAt: t1,
+				UpdatedAt: t2,
+				Links: map[string]capi.Links{
+					"self": {
+						Href: "https://some-addr.com/v3/processes/some-guid",
+					},
+					"scale": {
+						Href:   "https://some-addr.com/v3/processes/some-guid/actions/scale",
+						Method: "POST",
+					},
+					"app": {
+						Href: "https://some-addr.com/v3/apps/some-guid",
+					},
+					"space": {
+						Href: "https://some-addr.com/v3/spaces/3bc0de04-2987-40af-940e-fbdd06cdcfbf",
+					},
+					"stats": {
+						Href: "https://some-addr.com/v3/processes/some-guid/stats",
+					},
+				},
+			},
+			{Guid: "proc-2"},
+		}))
+	})
+
+	o.Spec("it returns an error if a non-200 is received", func(t TC) {
+		t.spyDoer.m["GET:http://some-addr.com/v3/apps/some-guid/processes"] = &http.Response{
+			StatusCode: 500,
+			Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+		}
+		_, err := t.c.Processes(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if the request fails", func(t TC) {
+		t.spyDoer.err = errors.New("some-error")
+		_, err := t.c.Processes(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if the response is invalid JSON", func(t TC) {
+		t.spyDoer.m["GET:http://some-addr.com/v3/apps/some-guid/processes"] = &http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(strings.NewReader(`invalid`)),
+		}
+
+		_, err := t.c.Processes(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it uses the given context", func(t TC) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		t.c.Processes(ctx, "some-guid")
+		Expect(t, t.spyDoer.req.Context().Err()).To(Not(BeNil()))
+	})
+}
+
+func TestProcessStats(t *testing.T) {
+	t.Parallel()
+	o := onpar.New()
+	defer o.Run(t)
+
+	o.BeforeEach(func(t *testing.T) TC {
+		spyDoer := newSpyDoer()
+
+		spyDoer.m["GET:http://some-addr.com/v3/processes/some-guid/stats"] = &http.Response{
+			StatusCode: 200,
+			Body: ioutil.NopCloser(strings.NewReader(
+				`{
+					"pagination": {
+					  "next": {
+					    "href": "https://some-addr.com/v3/processes/some-guid/stats?page=2&per_page=2"
+					  }
+					},
+					"resources":[
+					  {
+                        "type": "web",
+                        "index": 0,
+                        "state": "RUNNING",
+                        "usage": {
+                           "time": "2018-06-21T12:34:35+00:00",
+                           "cpu": 2,
+                           "mem": 4481024,
+                           "disk": 6189056
+                        },
+                        "host": "10.0.16.18",
+                        "uptime": 688533,
+                        "mem_quota": 67108864,
+                        "disk_quota": 104857600,
+                        "fds_quota": 16384
+                      }
+					]
+				}`,
+			)),
+		}
+
+		spyDoer.m["GET:http://some-addr.com/v3/processes/some-guid/stats?page=2&per_page=2"] = &http.Response{
+			StatusCode: 200,
+			Body: ioutil.NopCloser(strings.NewReader(
+				`{
+					"resources":[
+                       {
+                          "index": 2
+                       }
+					]
+				}`,
+			)),
+		}
+
+		return TC{
+			T:       t,
+			spyDoer: spyDoer,
+			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", time.Millisecond, spyDoer),
+		}
+	})
+
+	o.Spec("it hits CAPI correct", func(t TC) {
+		stats, err := t.c.ProcessStats(context.Background(), "some-guid")
+		Expect(t, err).To(BeNil())
+
+		t1, err := time.Parse(time.RFC3339, "2018-06-21T12:34:35+00:00")
+		Expect(t, err).To(BeNil())
+
+		Expect(t, stats).To(Equal([]capi.ProcessStats{
+			{
+				Type:  "web",
+				Index: 0,
+				State: "RUNNING",
+				Usage: struct {
+					Time time.Time `json:"time"`
+					CPU  float64   `json:"cpu"`
+					Mem  float64   `json:"mem"`
+					Disk int       `json:"disk"`
+				}{
+					Time: t1,
+					CPU:  2,
+					Mem:  4481024,
+					Disk: 6189056,
+				},
+				Host:      "10.0.16.18",
+				Uptime:    688533,
+				MemQuota:  67108864,
+				DiskQuota: 104857600,
+				FdsQuota:  16384,
+			},
+			{
+				Index: 2,
+			},
+		},
+		))
+	})
+
+	o.Spec("it returns an error if a non-200 is received", func(t TC) {
+		t.spyDoer.m["GET:http://some-addr.com/v3/processes/some-guid/stats"] = &http.Response{
+			StatusCode: 500,
+			Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+		}
+		_, err := t.c.Processes(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if the request fails", func(t TC) {
+		t.spyDoer.err = errors.New("some-error")
+		_, err := t.c.Processes(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if the response is invalid JSON", func(t TC) {
+		t.spyDoer.m["GET:http://some-addr.com/v3/processes/some-guid/stats"] = &http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(strings.NewReader(`invalid`)),
+		}
+
+		_, err := t.c.Processes(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it uses the given context", func(t TC) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		t.c.Processes(ctx, "some-guid")
+		Expect(t, t.spyDoer.req.Context().Err()).To(Not(BeNil()))
+	})
+}
+
 func TestClientCreateTask(t *testing.T) {
 	t.Parallel()
 	o := onpar.New()
