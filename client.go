@@ -80,6 +80,20 @@ type ProcessStats struct {
 	FdsQuota  int    `json:"fds_quota"`
 }
 
+type Task struct {
+	SequenceID  int              `json:"sequence_id"`
+	Name        string           `json:"name"`
+	Command     string           `json:"command"`
+	DiskInMB    int              `json:"disk_in_mb"`
+	MemoryInMB  int              `json:"memory_in_mb"`
+	State       string           `json:"state"`
+	DropletGuid string           `json:"droplet_guid"`
+	Guid        string           `json:"guid"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+	Links       map[string]Links `json:"links"`
+}
+
 func (c *Client) Processes(ctx context.Context, appGuid string) ([]Process, error) {
 	addr := c.addr
 	var processes []Process
@@ -407,8 +421,65 @@ func (c *Client) CreateTask(ctx context.Context, command string) error {
 	return nil
 }
 
-func (c *Client) ListTasks(appGuid string) ([]string, error) {
-	var names []string
+func (c *Client) RunTask(ctx context.Context, command string) (Task, error) {
+	u, err := url.Parse(c.addr)
+	if err != nil {
+		return Task{}, err
+	}
+	u.Path = fmt.Sprintf("/v3/apps/%s/tasks", c.appGuid)
+
+	marshalled, err := json.Marshal(struct {
+		Command     string `json:"command"`
+		DropletGuid string `json:"droplet_guid,omitempty"`
+	}{
+		Command: command,
+	})
+	if err != nil {
+		return Task{}, err
+	}
+
+	req := &http.Request{
+		URL:    u,
+		Method: "POST",
+		Body:   ioutil.NopCloser(bytes.NewReader(marshalled)),
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+		},
+	}
+	req = req.WithContext(ctx)
+
+	resp, err := c.doer.Do(req)
+	if err != nil {
+		return Task{}, err
+	}
+
+	defer func(resp *http.Response) {
+		// Fail safe to ensure the clients are being cleaned up
+		io.Copy(ioutil.Discard, resp.Body)
+		resp.Body.Close()
+	}(resp)
+
+	if resp.StatusCode != 202 {
+		data, _ := ioutil.ReadAll(resp.Body)
+		return Task{}, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, data)
+	}
+
+	var t Task
+	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
+		return Task{}, err
+	}
+
+	// Ensure all links are converted to http for proxy
+	for k, l := range t.Links {
+		l.Href = strings.Replace(l.Href, "https", "http", 1)
+		t.Links[k] = l
+	}
+
+	return t, nil
+}
+
+func (c *Client) ListTasks(appGuid string, query map[string][]string) ([]Task, error) {
+	var results []Task
 	addr := c.addr
 
 	for {
@@ -417,6 +488,14 @@ func (c *Client) ListTasks(appGuid string) ([]string, error) {
 			return nil, err
 		}
 		u.Path = fmt.Sprintf("/v3/apps/%s/tasks", appGuid)
+
+		q := u.Query()
+		for k, v := range query {
+			for _, vv := range v {
+				q.Add(k, vv)
+			}
+		}
+		u.RawQuery = q.Encode()
 
 		req := &http.Request{
 			URL:    u,
@@ -445,27 +524,22 @@ func (c *Client) ListTasks(appGuid string) ([]string, error) {
 					Href string `json:"href"`
 				} `json:"next"`
 			} `json:"pagination"`
-			Resources []struct {
-				Name string `json:"name"`
-			} `json:"resources"`
+			Resources []Task `json:"resources"`
 		}
 
 		if err := json.NewDecoder(resp.Body).Decode(&tasks); err != nil {
 			return nil, err
 		}
 
-		for _, t := range tasks.Resources {
-			names = append(names, t.Name)
-		}
+		results = append(results, tasks.Resources...)
 
 		if tasks.Pagination.Next.Href != "" {
 			addr = tasks.Pagination.Next.Href
 			continue
 		}
 
-		return names, nil
+		return results, nil
 	}
-
 }
 
 func (c *Client) GetPackageGuid(ctx context.Context, appGuid string) (guid, downloadAddr string, err error) {
