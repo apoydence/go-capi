@@ -421,12 +421,16 @@ func (c *Client) CreateTask(ctx context.Context, command string) error {
 	return nil
 }
 
-func (c *Client) RunTask(ctx context.Context, command, name, droplet string) (Task, error) {
+func (c *Client) RunTask(ctx context.Context, command, name, droplet, appGuid string) (Task, error) {
+	if appGuid == "" {
+		appGuid = c.appGuid
+	}
+
 	u, err := url.Parse(c.addr)
 	if err != nil {
 		return Task{}, err
 	}
-	u.Path = fmt.Sprintf("/v3/apps/%s/tasks", c.appGuid)
+	u.Path = fmt.Sprintf("/v3/apps/%s/tasks", appGuid)
 
 	marshalled, err := json.Marshal(struct {
 		Command     string `json:"command"`
