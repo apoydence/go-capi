@@ -428,7 +428,7 @@ func TestClientRunTask(t *testing.T) {
 	})
 
 	o.Spec("it hits CAPI correct", func(t TC) {
-		task, err := t.c.RunTask(context.Background(), "some-command")
+		task, err := t.c.RunTask(context.Background(), "some-command", "", "")
 		Expect(t, err).To(BeNil())
 
 		Expect(t, t.spyDoer.req.Method).To(Equal("POST"))
@@ -445,14 +445,14 @@ func TestClientRunTask(t *testing.T) {
 		}
 	})
 
-	o.Spec("it includes the droplet guid if provided", func(t TC) {
-		_, err := t.c.RunTask(context.Background(), "some-command")
+	o.Spec("it includes the droplet guid and name if provided", func(t TC) {
+		_, err := t.c.RunTask(context.Background(), "some-command", "some-name", "some-droplet")
 		Expect(t, err).To(BeNil())
 
 		Expect(t, t.spyDoer.req.Method).To(Equal("POST"))
 		Expect(t, t.spyDoer.req.URL.String()).To(Equal("http://some-addr.com/v3/apps/some-guid/tasks"))
 		Expect(t, t.spyDoer.req.Header.Get("Content-Type")).To(Equal("application/json"))
-		Expect(t, t.spyDoer.body).To(MatchJSON(`{"command":"some-command"}`))
+		Expect(t, t.spyDoer.body).To(MatchJSON(`{"command":"some-command","name":"some-name","droplet_guid":"some-droplet"}`))
 	})
 
 	o.Spec("context cancels the request", func(t TC) {
@@ -468,7 +468,7 @@ func TestClientRunTask(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		t.c.RunTask(ctx, "some-command")
+		t.c.RunTask(ctx, "some-command", "some-name", "some-droplet")
 		Expect(t, t.spyDoer.req.Context().Err()).To(Not(BeNil()))
 	})
 
@@ -477,19 +477,19 @@ func TestClientRunTask(t *testing.T) {
 			StatusCode: 500,
 			Body:       ioutil.NopCloser(bytes.NewReader(nil)),
 		}
-		_, err := t.c.RunTask(context.Background(), "some-command")
+		_, err := t.c.RunTask(context.Background(), "some-command", "some-name", "some-droplet")
 		Expect(t, err).To(Not(BeNil()))
 	})
 
 	o.Spec("it returns an error if the addr is invalid", func(t TC) {
 		t.c = capi.NewClient("::invalid", "some-id", "space-guid", time.Millisecond, t.spyDoer)
-		_, err := t.c.RunTask(context.Background(), "some-command")
+		_, err := t.c.RunTask(context.Background(), "some-command", "some-name", "some-droplet")
 		Expect(t, err).To(Not(BeNil()))
 	})
 
 	o.Spec("it returns an error if the request fails", func(t TC) {
 		t.spyDoer.err = errors.New("some-error")
-		_, err := t.c.RunTask(context.Background(), "some-command")
+		_, err := t.c.RunTask(context.Background(), "some-command", "some-name", "some-droplet")
 		Expect(t, err).To(Not(BeNil()))
 	})
 
@@ -498,7 +498,7 @@ func TestClientRunTask(t *testing.T) {
 			StatusCode: 202,
 			Body:       ioutil.NopCloser(strings.NewReader(`invalid`)),
 		}
-		_, err := t.c.RunTask(context.Background(), "some-command")
+		_, err := t.c.RunTask(context.Background(), "some-command", "some-name", "some-droplet")
 		Expect(t, err).To(Not(BeNil()))
 	})
 }
@@ -946,7 +946,6 @@ func (s *spyDoer) Do(req *http.Request) (*http.Response, error) {
 
 	r, ok := s.m[fmt.Sprintf("%s:%s", req.Method, req.URL.String())]
 	if !ok {
-		println(fmt.Sprintf("%s:%s", req.Method, req.URL.String()))
 		return &http.Response{
 			StatusCode: 202,
 			Body:       ioutil.NopCloser(strings.NewReader(`{"state":"SUCCEEDED"}`)),

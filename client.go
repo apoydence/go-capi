@@ -421,7 +421,7 @@ func (c *Client) CreateTask(ctx context.Context, command string) error {
 	return nil
 }
 
-func (c *Client) RunTask(ctx context.Context, command string) (Task, error) {
+func (c *Client) RunTask(ctx context.Context, command, name, droplet string) (Task, error) {
 	u, err := url.Parse(c.addr)
 	if err != nil {
 		return Task{}, err
@@ -430,9 +430,12 @@ func (c *Client) RunTask(ctx context.Context, command string) (Task, error) {
 
 	marshalled, err := json.Marshal(struct {
 		Command     string `json:"command"`
+		Name        string `json:"name,omitempty"`
 		DropletGuid string `json:"droplet_guid,omitempty"`
 	}{
-		Command: command,
+		Command:     command,
+		Name:        name,
+		DropletGuid: droplet,
 	})
 	if err != nil {
 		return Task{}, err
