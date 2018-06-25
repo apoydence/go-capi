@@ -98,7 +98,7 @@ func TestProcesses(t *testing.T) {
 		return TC{
 			T:       t,
 			spyDoer: spyDoer,
-			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", time.Millisecond, spyDoer),
+			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", spyDoer),
 		}
 	})
 
@@ -235,7 +235,7 @@ func TestProcessStats(t *testing.T) {
 		return TC{
 			T:       t,
 			spyDoer: spyDoer,
-			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", time.Millisecond, spyDoer),
+			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", spyDoer),
 		}
 	})
 
@@ -318,12 +318,12 @@ func TestClientCreateTask(t *testing.T) {
 		return TC{
 			T:       t,
 			spyDoer: spyDoer,
-			c:       capi.NewClient("http://some-addr.com", "some-guid", "space-guid", time.Millisecond, spyDoer),
+			c:       capi.NewClient("http://some-addr.com", "some-guid", "space-guid", spyDoer),
 		}
 	})
 
 	o.Spec("it hits CAPI correct", func(t TC) {
-		err := t.c.CreateTask(context.Background(), "some-command")
+		err := t.c.CreateTask(context.Background(), "some-command", time.Millisecond)
 		Expect(t, err).To(BeNil())
 
 		Expect(t, t.spyDoer.req.Method).To(Equal("POST"))
@@ -333,7 +333,7 @@ func TestClientCreateTask(t *testing.T) {
 	})
 
 	o.Spec("it includes the droplet guid if provided", func(t TC) {
-		err := t.c.CreateTask(context.Background(), "some-command")
+		err := t.c.CreateTask(context.Background(), "some-command", time.Millisecond)
 		Expect(t, err).To(BeNil())
 
 		Expect(t, t.spyDoer.req.Method).To(Equal("POST"))
@@ -352,7 +352,7 @@ func TestClientCreateTask(t *testing.T) {
 			StatusCode: 200,
 			Body:       ioutil.NopCloser(strings.NewReader(`{"links":{"self":{"href":"https://xx.succeeded"}},"state":"SUCCEEDED"}`)),
 		}
-		err := t.c.CreateTask(context.Background(), "some-command")
+		err := t.c.CreateTask(context.Background(), "some-command", time.Millisecond)
 		Expect(t, err).To(BeNil())
 
 		t.spyDoer.m["POST:http://some-addr.com/v3/apps/some-other-guid/tasks"] = &http.Response{
@@ -364,7 +364,7 @@ func TestClientCreateTask(t *testing.T) {
 			StatusCode: 200,
 			Body:       ioutil.NopCloser(strings.NewReader(`{"guid":"task-guid","state":"FAILED"}`)),
 		}
-		err = t.c.CreateTask(context.Background(), "some-command")
+		err = t.c.CreateTask(context.Background(), "some-command", time.Millisecond)
 		Expect(t, err).To(Not(BeNil()))
 	})
 
@@ -381,7 +381,7 @@ func TestClientCreateTask(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		t.c.CreateTask(ctx, "some-command")
+		t.c.CreateTask(ctx, "some-command", time.Millisecond)
 		Expect(t, t.spyDoer.req.Context().Err()).To(Not(BeNil()))
 	})
 
@@ -390,19 +390,19 @@ func TestClientCreateTask(t *testing.T) {
 			StatusCode: 500,
 			Body:       ioutil.NopCloser(bytes.NewReader(nil)),
 		}
-		err := t.c.CreateTask(context.Background(), "some-command")
+		err := t.c.CreateTask(context.Background(), "some-command", time.Millisecond)
 		Expect(t, err).To(Not(BeNil()))
 	})
 
 	o.Spec("it returns an error if the addr is invalid", func(t TC) {
-		t.c = capi.NewClient("::invalid", "some-id", "space-guid", time.Millisecond, t.spyDoer)
-		err := t.c.CreateTask(context.Background(), "some-command")
+		t.c = capi.NewClient("::invalid", "some-id", "space-guid", t.spyDoer)
+		err := t.c.CreateTask(context.Background(), "some-command", time.Millisecond)
 		Expect(t, err).To(Not(BeNil()))
 	})
 
 	o.Spec("it returns an error if the request fails", func(t TC) {
 		t.spyDoer.err = errors.New("some-error")
-		err := t.c.CreateTask(context.Background(), "some-command")
+		err := t.c.CreateTask(context.Background(), "some-command", time.Millisecond)
 		Expect(t, err).To(Not(BeNil()))
 	})
 }
@@ -417,7 +417,7 @@ func TestClientGetTask(t *testing.T) {
 		return TC{
 			T:       t,
 			spyDoer: spyDoer,
-			c:       capi.NewClient("http://some-addr.com", "some-guid", "space-guid", time.Millisecond, spyDoer),
+			c:       capi.NewClient("http://some-addr.com", "some-guid", "space-guid", spyDoer),
 		}
 	})
 
@@ -469,7 +469,7 @@ func TestClientGetTask(t *testing.T) {
 	})
 
 	o.Spec("it returns an error if the addr is invalid", func(t TC) {
-		t.c = capi.NewClient("::invalid", "some-id", "space-guid", time.Millisecond, t.spyDoer)
+		t.c = capi.NewClient("::invalid", "some-id", "space-guid", t.spyDoer)
 		_, err := t.c.GetTask(context.Background(), "some-guid")
 		Expect(t, err).To(Not(BeNil()))
 	})
@@ -497,7 +497,7 @@ func TestClientRunTask(t *testing.T) {
 		return TC{
 			T:       t,
 			spyDoer: spyDoer,
-			c:       capi.NewClient("http://some-addr.com", "some-guid", "space-guid", time.Millisecond, spyDoer),
+			c:       capi.NewClient("https://some-addr.com", "some-guid", "space-guid", spyDoer),
 		}
 	})
 
@@ -557,7 +557,7 @@ func TestClientRunTask(t *testing.T) {
 	})
 
 	o.Spec("it returns an error if the addr is invalid", func(t TC) {
-		t.c = capi.NewClient("::invalid", "some-id", "space-guid", time.Millisecond, t.spyDoer)
+		t.c = capi.NewClient("::invalid", "some-id", "space-guid", t.spyDoer)
 		_, err := t.c.RunTask(context.Background(), "some-command", "some-name", "some-droplet", "")
 		Expect(t, err).To(Not(BeNil()))
 	})
@@ -638,7 +638,7 @@ func TestClientListTasks(t *testing.T) {
 		return TC{
 			T:       t,
 			spyDoer: spyDoer,
-			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", time.Millisecond, spyDoer),
+			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", spyDoer),
 		}
 	})
 
@@ -709,7 +709,7 @@ func TestClientGetAppGuid(t *testing.T) {
 		return TC{
 			T:       t,
 			spyDoer: spyDoer,
-			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", time.Millisecond, spyDoer),
+			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", spyDoer),
 		}
 	})
 
@@ -806,7 +806,7 @@ func TestClientGetDropletGuid(t *testing.T) {
 		return TC{
 			T:       t,
 			spyDoer: spyDoer,
-			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", time.Millisecond, spyDoer),
+			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", spyDoer),
 		}
 	})
 
@@ -894,7 +894,7 @@ func TestClientGetPackageGuid(t *testing.T) {
 		return TC{
 			T:       t,
 			spyDoer: spyDoer,
-			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", time.Millisecond, spyDoer),
+			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", spyDoer),
 		}
 	})
 

@@ -19,20 +19,21 @@ type Client struct {
 	appGuid   string
 	spaceGuid string
 	doer      Doer
-	interval  time.Duration
 }
 
 type Doer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-func NewClient(addr, appGuid, spaceGuid string, interval time.Duration, d Doer) *Client {
+func NewClient(addr, appGuid, spaceGuid string, d Doer) *Client {
+	// Replace HTTPS with HTTP so the HTTP_PROXY can do the work for us
+	addr = strings.Replace(addr, "https", "http", 1)
+
 	return &Client{
 		doer:      d,
 		addr:      addr,
 		appGuid:   appGuid,
 		spaceGuid: spaceGuid,
-		interval:  interval,
 	}
 }
 
@@ -322,7 +323,7 @@ func (c *Client) GetDropletGuid(ctx context.Context, appGuid string) (string, er
 	return result.Guid, nil
 }
 
-func (c *Client) CreateTask(ctx context.Context, command string) error {
+func (c *Client) CreateTask(ctx context.Context, command string, interval time.Duration) error {
 	u, err := url.Parse(c.addr)
 	if err != nil {
 		return err
@@ -385,7 +386,7 @@ func (c *Client) CreateTask(ctx context.Context, command string) error {
 
 		switch results.State {
 		case "RUNNING":
-			time.Sleep(c.interval)
+			time.Sleep(interval)
 
 			u, err := url.Parse(results.Links.Self.Href)
 			if err != nil {
