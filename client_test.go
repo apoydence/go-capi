@@ -568,7 +568,7 @@ func TestClientListTasks(t *testing.T) {
 	})
 
 	o.Spec("it hits CAPI correct", func(t TC) {
-		tasks, err := t.c.ListTasks("some-guid", nil)
+		tasks, err := t.c.ListTasks(context.Background(), "some-guid", nil)
 		Expect(t, err).To(BeNil())
 
 		Expect(t, tasks).To(Equal([]capi.Task{
@@ -578,7 +578,7 @@ func TestClientListTasks(t *testing.T) {
 	})
 
 	o.Spec("it hits CAPI correct with query parameters", func(t TC) {
-		tasks, err := t.c.ListTasks("some-guid", map[string][]string{
+		tasks, err := t.c.ListTasks(context.Background(), "some-guid", map[string][]string{
 			"names": []string{"x"},
 		})
 		Expect(t, err).To(BeNil())
@@ -590,18 +590,26 @@ func TestClientListTasks(t *testing.T) {
 		}))
 	})
 
+	o.Spec("it uses the given context", func(t TC) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		t.c.ListTasks(ctx, "some-guid", nil)
+
+		Expect(t, t.spyDoer.req.Context().Err()).To(Not(BeNil()))
+	})
+
 	o.Spec("it returns an error if a non-200 is received", func(t TC) {
 		t.spyDoer.m["GET:http://some-addr.com/v3/apps/some-guid/tasks"] = &http.Response{
 			StatusCode: 500,
 			Body:       ioutil.NopCloser(bytes.NewReader(nil)),
 		}
-		_, err := t.c.ListTasks("some-guid", nil)
+		_, err := t.c.ListTasks(context.Background(), "some-guid", nil)
 		Expect(t, err).To(Not(BeNil()))
 	})
 
 	o.Spec("it returns an error if the request fails", func(t TC) {
 		t.spyDoer.err = errors.New("some-error")
-		_, err := t.c.ListTasks("some-guid", nil)
+		_, err := t.c.ListTasks(context.Background(), "some-guid", nil)
 		Expect(t, err).To(Not(BeNil()))
 	})
 
@@ -611,7 +619,7 @@ func TestClientListTasks(t *testing.T) {
 			Body:       ioutil.NopCloser(strings.NewReader(`invalid`)),
 		}
 
-		_, err := t.c.ListTasks("some-guid", nil)
+		_, err := t.c.ListTasks(context.Background(), "some-guid", nil)
 		Expect(t, err).To(Not(BeNil()))
 	})
 }

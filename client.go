@@ -478,7 +478,7 @@ func (c *Client) RunTask(ctx context.Context, command string) (Task, error) {
 	return t, nil
 }
 
-func (c *Client) ListTasks(appGuid string, query map[string][]string) ([]Task, error) {
+func (c *Client) ListTasks(ctx context.Context, appGuid string, query map[string][]string) ([]Task, error) {
 	var results []Task
 	addr := c.addr
 
@@ -502,6 +502,7 @@ func (c *Client) ListTasks(appGuid string, query map[string][]string) ([]Task, e
 			Method: "GET",
 			Header: http.Header{},
 		}
+		req = req.WithContext(ctx)
 
 		resp, err := c.doer.Do(req)
 		if err != nil {
