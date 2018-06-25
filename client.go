@@ -421,6 +421,57 @@ func (c *Client) CreateTask(ctx context.Context, command string) error {
 	return nil
 }
 
+func (c *Client) GetTask(ctx context.Context, guid string) (Task, error) {
+	u, err := url.Parse(c.addr)
+	if err != nil {
+		return Task{}, err
+	}
+	u.Path = fmt.Sprintf("/v3/tasks/%s", guid)
+
+	req := &http.Request{
+		URL:    u,
+		Method: "GET",
+		Body:   ioutil.NopCloser(bytes.NewReader(nil)),
+		Header: http.Header{
+			"Accept": []string{"application/json"},
+		},
+	}
+	req = req.WithContext(ctx)
+
+	resp, err := c.doer.Do(req)
+	if err != nil {
+		return Task{}, err
+	}
+
+	defer func(resp *http.Response) {
+		// Fail safe to ensure the clients are being cleaned up
+		io.Copy(ioutil.Discard, resp.Body)
+		resp.Body.Close()
+	}(resp)
+
+	if resp.StatusCode != 200 {
+		data, _ := ioutil.ReadAll(resp.Body)
+		return Task{}, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, data)
+	}
+
+	var task Task
+	if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
+		return Task{}, err
+	}
+
+	// Ensure all links are converted to http for proxy
+	for k, l := range task.Links {
+		l.Href = strings.Replace(l.Href, "https", "http", 1)
+
+		if l.Method == "" {
+			l.Method = "GET"
+		}
+		task.Links[k] = l
+	}
+
+	return task, nil
+}
+
 func (c *Client) RunTask(ctx context.Context, command, name, droplet, appGuid string) (Task, error) {
 	if appGuid == "" {
 		appGuid = c.appGuid
@@ -479,6 +530,10 @@ func (c *Client) RunTask(ctx context.Context, command, name, droplet, appGuid st
 	// Ensure all links are converted to http for proxy
 	for k, l := range t.Links {
 		l.Href = strings.Replace(l.Href, "https", "http", 1)
+
+		if l.Method == "" {
+			l.Method = "GET"
+		}
 		t.Links[k] = l
 	}
 

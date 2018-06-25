@@ -345,7 +345,7 @@ func TestClientCreateTask(t *testing.T) {
 	o.Spec("it requests the status of the task", func(t TC) {
 		t.spyDoer.m["POST:http://some-addr.com/v3/apps/some-guid/tasks"] = &http.Response{
 			StatusCode: 202,
-			Body:       ioutil.NopCloser(strings.NewReader(`{"lines":{"self":{"href":"https://xx.succeeded"}},"state":"RUNNING"}`)),
+			Body:       ioutil.NopCloser(strings.NewReader(`{"links":{"self":{"href":"https://xx.succeeded"}},"state":"RUNNING"}`)),
 		}
 
 		t.spyDoer.m["GET:http://xx.succeeded"] = &http.Response{
@@ -371,7 +371,7 @@ func TestClientCreateTask(t *testing.T) {
 	o.Spec("context cancels the request", func(t TC) {
 		t.spyDoer.m["POST:http://some-addr.com/v3/apps/some-guid/tasks"] = &http.Response{
 			StatusCode: 202,
-			Body:       ioutil.NopCloser(strings.NewReader(`{"lines":{"self":{"href":"http://xx.succeeded"}},"state":"RUNNING"}`)),
+			Body:       ioutil.NopCloser(strings.NewReader(`{"links":{"self":{"href":"http://xx.succeeded"}},"state":"RUNNING"}`)),
 		}
 
 		t.spyDoer.m["GET:http://xx.succeeded"] = &http.Response{
@@ -403,6 +403,80 @@ func TestClientCreateTask(t *testing.T) {
 	o.Spec("it returns an error if the request fails", func(t TC) {
 		t.spyDoer.err = errors.New("some-error")
 		err := t.c.CreateTask(context.Background(), "some-command")
+		Expect(t, err).To(Not(BeNil()))
+	})
+}
+
+func TestClientGetTask(t *testing.T) {
+	t.Parallel()
+	o := onpar.New()
+	defer o.Run(t)
+
+	o.BeforeEach(func(t *testing.T) TC {
+		spyDoer := newSpyDoer()
+		return TC{
+			T:       t,
+			spyDoer: spyDoer,
+			c:       capi.NewClient("http://some-addr.com", "some-guid", "space-guid", time.Millisecond, spyDoer),
+		}
+	})
+
+	o.Spec("it hits CAPI correct", func(t TC) {
+		t.spyDoer.m["GET:http://some-addr.com/v3/tasks/some-guid"] = &http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(strings.NewReader(`{"name":"some-name","links":{"self":{"href":"https://xx.succeeded"}},"state":"RUNNING"}`)),
+		}
+
+		task, err := t.c.GetTask(context.Background(), "some-guid")
+		Expect(t, err).To(BeNil())
+
+		Expect(t, task).To(Equal(capi.Task{
+			Name:  "some-name",
+			State: "RUNNING",
+			Links: map[string]capi.Links{
+				"self": {
+					// converts https to http
+					Href:   "http://xx.succeeded",
+					Method: "GET",
+				},
+			},
+		}))
+
+		Expect(t, t.spyDoer.req.Method).To(Equal("GET"))
+		Expect(t, t.spyDoer.req.URL.String()).To(Equal("http://some-addr.com/v3/tasks/some-guid"))
+		Expect(t, t.spyDoer.req.Header.Get("Accept")).To(Equal("application/json"))
+	})
+
+	o.Spec("context cancels the request", func(t TC) {
+		t.spyDoer.m["GET:http://some-addr.com/v3/tasks/some-guid"] = &http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(strings.NewReader(`{"name":"some-name","links":{"self":{"href":"https://xx.succeeded"}},"state":"RUNNING"}`)),
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		t.c.GetTask(ctx, "some-guid")
+		Expect(t, t.spyDoer.req.Context().Err()).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if a non-200 is received", func(t TC) {
+		t.spyDoer.m["GET:http://some-addr.com/v3/tasks/some-guid"] = &http.Response{
+			StatusCode: 500,
+			Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+		}
+		_, err := t.c.GetTask(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if the addr is invalid", func(t TC) {
+		t.c = capi.NewClient("::invalid", "some-id", "space-guid", time.Millisecond, t.spyDoer)
+		_, err := t.c.GetTask(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if the request fails", func(t TC) {
+		t.spyDoer.err = errors.New("some-error")
+		_, err := t.c.GetTask(context.Background(), "some-guid")
 		Expect(t, err).To(Not(BeNil()))
 	})
 }
@@ -442,6 +516,7 @@ func TestClientRunTask(t *testing.T) {
 		Expect(t, task.Links).To(HaveLen(1))
 		for _, l := range task.Links {
 			Expect(t, l.Href).To(Not(ContainSubstring("https")))
+			Expect(t, l.Method).To(Equal("GET"))
 		}
 	})
 
@@ -458,7 +533,7 @@ func TestClientRunTask(t *testing.T) {
 	o.Spec("context cancels the request", func(t TC) {
 		t.spyDoer.m["POST:http://some-addr.com/v3/apps/some-guid/tasks"] = &http.Response{
 			StatusCode: 202,
-			Body:       ioutil.NopCloser(strings.NewReader(`{"lines":{"self":{"href":"http://xx.succeeded"}},"state":"RUNNING"}`)),
+			Body:       ioutil.NopCloser(strings.NewReader(`{"links":{"self":{"href":"http://xx.succeeded"}},"state":"RUNNING"}`)),
 		}
 
 		t.spyDoer.m["GET:http://xx.succeeded"] = &http.Response{
