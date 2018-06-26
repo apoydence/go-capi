@@ -716,3 +716,50 @@ func (c *Client) GetPackageGuid(ctx context.Context, appGuid string) (guid, down
 
 	return gresult.Guid, dl, nil
 }
+
+func (c *Client) GetEnvironmentVariables(ctx context.Context, appGuid string) (map[string]string, error) {
+	if appGuid == "" {
+		appGuid = c.appGuid
+	}
+
+	u, err := url.Parse(c.addr)
+	if err != nil {
+		return nil, err
+	}
+	u.Path = fmt.Sprintf("/v3/apps/%s/environment_variables", appGuid)
+
+	req := &http.Request{
+		URL:    u,
+		Method: "GET",
+		Body:   ioutil.NopCloser(bytes.NewReader(nil)),
+		Header: http.Header{
+			"Accept": []string{"application/json"},
+		},
+	}
+	req = req.WithContext(ctx)
+
+	resp, err := c.doer.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func(resp *http.Response) {
+		// Fail safe to ensure the clients are being cleaned up
+		io.Copy(ioutil.Discard, resp.Body)
+		resp.Body.Close()
+	}(resp)
+
+	if resp.StatusCode != 200 {
+		data, _ := ioutil.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, data)
+	}
+
+	var t struct {
+		Var map[string]string `json:"var"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
+		return nil, err
+	}
+
+	return t.Var, nil
+}

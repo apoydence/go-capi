@@ -699,6 +699,93 @@ func TestClientListTasks(t *testing.T) {
 	})
 }
 
+func TestClientGenEnvironmentVariables(t *testing.T) {
+	t.Parallel()
+	o := onpar.New()
+	defer o.Run(t)
+
+	o.BeforeEach(func(t *testing.T) TC {
+		spyDoer := newSpyDoer()
+
+		spyDoer.m["GET:http://some-addr.com/v3/apps/some-guid/environment_variables"] = &http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(strings.NewReader(`{"var":{"A":"b","C":"d"}}`)),
+		}
+
+		return TC{
+			T:       t,
+			spyDoer: spyDoer,
+			c:       capi.NewClient("https://some-addr.com", "some-guid", "space-guid", spyDoer),
+		}
+	})
+
+	o.Spec("it hits CAPI correct", func(t TC) {
+		envs, err := t.c.GetEnvironmentVariables(context.Background(), "some-guid")
+		Expect(t, err).To(BeNil())
+
+		Expect(t, t.spyDoer.req.Method).To(Equal("GET"))
+		Expect(t, t.spyDoer.req.URL.String()).To(Equal("http://some-addr.com/v3/apps/some-guid/environment_variables"))
+		Expect(t, t.spyDoer.req.Header.Get("Accept")).To(Equal("application/json"))
+
+		Expect(t, envs["A"]).To(Equal("b"))
+		Expect(t, envs["C"]).To(Equal("d"))
+	})
+
+	o.Spec("it uses the global guid if its not included", func(t TC) {
+		envs, err := t.c.GetEnvironmentVariables(context.Background(), "")
+		Expect(t, err).To(BeNil())
+
+		Expect(t, t.spyDoer.req.Method).To(Equal("GET"))
+		Expect(t, t.spyDoer.req.URL.String()).To(Equal("http://some-addr.com/v3/apps/some-guid/environment_variables"))
+		Expect(t, t.spyDoer.req.Header.Get("Accept")).To(Equal("application/json"))
+
+		Expect(t, envs["A"]).To(Equal("b"))
+		Expect(t, envs["C"]).To(Equal("d"))
+	})
+
+	o.Spec("context cancels the request", func(t TC) {
+		t.spyDoer.m["GET:http://some-addr.com/v3/apps/some-guid/environment_variables"] = &http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(strings.NewReader(`{"var":{"A":"b","C":"d"}}`)),
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		t.c.GetEnvironmentVariables(ctx, "some-guid")
+		Expect(t, t.spyDoer.req.Context().Err()).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if a non-200 is received", func(t TC) {
+		t.spyDoer.m["GET:http://some-addr.com/v3/apps/some-guid/environment_variables"] = &http.Response{
+			StatusCode: 500,
+			Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+		}
+		_, err := t.c.GetEnvironmentVariables(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if the addr is invalid", func(t TC) {
+		t.c = capi.NewClient("::invalid", "some-id", "space-guid", t.spyDoer)
+		_, err := t.c.GetEnvironmentVariables(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if the request fails", func(t TC) {
+		t.spyDoer.err = errors.New("some-error")
+		_, err := t.c.GetEnvironmentVariables(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if the response fails to unmarshal", func(t TC) {
+		t.spyDoer.m["GET:http://some-addr.com/v3/apps/some-guid/environment_variables"] = &http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(strings.NewReader(`invalid`)),
+		}
+		_, err := t.c.GetEnvironmentVariables(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+}
+
 func TestClientGetAppGuid(t *testing.T) {
 	t.Parallel()
 	o := onpar.New()
