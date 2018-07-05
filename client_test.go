@@ -796,7 +796,7 @@ func TestClientSetEnvironmentVariables(t *testing.T) {
 
 		spyDoer.m["PATCH:http://some-addr.com/v3/apps/some-guid/environment_variables"] = &http.Response{
 			StatusCode: 200,
-			Body:       ioutil.NopCloser(strings.NewReader(`{"var":{"A":"b","C":"d"}}`)),
+			Body:       ioutil.NopCloser(strings.NewReader(``)),
 		}
 
 		return TC{
@@ -864,6 +864,86 @@ func TestClientSetEnvironmentVariables(t *testing.T) {
 	o.Spec("it returns an error if the request fails", func(t TC) {
 		t.spyDoer.err = errors.New("some-error")
 		err := t.c.SetEnvironmentVariables(context.Background(), "some-guid", map[string]string{"A": "a"})
+		Expect(t, err).To(Not(BeNil()))
+	})
+}
+
+func TestClientRestart(t *testing.T) {
+	t.Parallel()
+	o := onpar.New()
+	defer o.Run(t)
+
+	o.BeforeEach(func(t *testing.T) TC {
+		spyDoer := newSpyDoer()
+
+		spyDoer.m["POST:http://some-addr.com/v3/apps/some-guid/environment_variables"] = &http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(strings.NewReader(`{"var":{"A":"b","C":"d"}}`)),
+		}
+
+		return TC{
+			T:       t,
+			spyDoer: spyDoer,
+			c:       capi.NewClient("https://some-addr.com", "some-guid", "space-guid", spyDoer),
+		}
+	})
+
+	o.Spec("it hits CAPI correct", func(t TC) {
+		t.spyDoer.m["POST:http://some-addr.com/v3/apps/some-guid/actions/restart"] = &http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(strings.NewReader(``)),
+		}
+		err := t.c.Restart(context.Background(), "some-guid")
+		Expect(t, err).To(BeNil())
+
+		Expect(t, t.spyDoer.req.Method).To(Equal("POST"))
+		Expect(t, t.spyDoer.req.URL.String()).To(Equal("http://some-addr.com/v3/apps/some-guid/actions/restart"))
+		Expect(t, t.spyDoer.req.Header.Get("Content-Type")).To(Equal("application/json"))
+	})
+
+	o.Spec("it uses the global guid if its not included", func(t TC) {
+		t.spyDoer.m["POST:http://some-addr.com/v3/apps/some-guid/actions/restart"] = &http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(strings.NewReader(``)),
+		}
+		err := t.c.Restart(context.Background(), "")
+		Expect(t, err).To(BeNil())
+
+		Expect(t, t.spyDoer.req.Method).To(Equal("POST"))
+		Expect(t, t.spyDoer.req.URL.String()).To(Equal("http://some-addr.com/v3/apps/some-guid/actions/restart"))
+		Expect(t, t.spyDoer.req.Header.Get("Content-Type")).To(Equal("application/json"))
+	})
+
+	o.Spec("context cancels the request", func(t TC) {
+		t.spyDoer.m["POST:http://some-addr.com/v3/apps/some-guid/actions/restart"] = &http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(strings.NewReader(``)),
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		t.c.Restart(ctx, "some-guid")
+		Expect(t, t.spyDoer.req.Context().Err()).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if a non-200 is received", func(t TC) {
+		t.spyDoer.m["POST:http://some-addr.com/v3/apps/some-guid/actions/restart"] = &http.Response{
+			StatusCode: 500,
+			Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+		}
+		err := t.c.Restart(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if the addr is invalid", func(t TC) {
+		t.c = capi.NewClient("::invalid", "some-id", "space-guid", t.spyDoer)
+		err := t.c.Restart(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if the request fails", func(t TC) {
+		t.spyDoer.err = errors.New("some-error")
+		err := t.c.Restart(context.Background(), "some-guid")
 		Expect(t, err).To(Not(BeNil()))
 	})
 }

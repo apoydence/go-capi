@@ -810,3 +810,43 @@ func (c *Client) SetEnvironmentVariables(ctx context.Context, appGuid string, va
 
 	return nil
 }
+
+func (c *Client) Restart(ctx context.Context, appGuid string) error {
+	if appGuid == "" {
+		appGuid = c.appGuid
+	}
+
+	u, err := url.Parse(c.addr)
+	if err != nil {
+		return err
+	}
+	u.Path = fmt.Sprintf("/v3/apps/%s/actions/restart", appGuid)
+
+	req := &http.Request{
+		URL:    u,
+		Method: http.MethodPost,
+		Body:   ioutil.NopCloser(bytes.NewReader(nil)),
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+		},
+	}
+	req = req.WithContext(ctx)
+
+	resp, err := c.doer.Do(req)
+	if err != nil {
+		return err
+	}
+
+	defer func(resp *http.Response) {
+		// Fail safe to ensure the clients are being cleaned up
+		io.Copy(ioutil.Discard, resp.Body)
+		resp.Body.Close()
+	}(resp)
+
+	if resp.StatusCode != 200 {
+		data, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, data)
+	}
+
+	return nil
+}
