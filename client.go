@@ -763,3 +763,50 @@ func (c *Client) GetEnvironmentVariables(ctx context.Context, appGuid string) (m
 
 	return t.Var, nil
 }
+
+func (c *Client) SetEnvironmentVariables(ctx context.Context, appGuid string, vars map[string]string) error {
+	if appGuid == "" {
+		appGuid = c.appGuid
+	}
+
+	u, err := url.Parse(c.addr)
+	if err != nil {
+		return err
+	}
+	u.Path = fmt.Sprintf("/v3/apps/%s/environment_variables", appGuid)
+
+	data, err := json.Marshal(struct {
+		Var map[string]string `json:"var"`
+	}{vars})
+	if err != nil {
+		return err
+	}
+
+	req := &http.Request{
+		URL:    u,
+		Method: "PATCH",
+		Body:   ioutil.NopCloser(bytes.NewReader(data)),
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+		},
+	}
+	req = req.WithContext(ctx)
+
+	resp, err := c.doer.Do(req)
+	if err != nil {
+		return err
+	}
+
+	defer func(resp *http.Response) {
+		// Fail safe to ensure the clients are being cleaned up
+		io.Copy(ioutil.Discard, resp.Body)
+		resp.Body.Close()
+	}(resp)
+
+	if resp.StatusCode != 200 {
+		data, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, data)
+	}
+
+	return nil
+}
