@@ -180,6 +180,86 @@ func TestProcesses(t *testing.T) {
 	})
 }
 
+func TestLastEvent(t *testing.T) {
+	t.Parallel()
+	o := onpar.New()
+	defer o.Run(t)
+
+	o.BeforeEach(func(t *testing.T) TC {
+		spyDoer := newSpyDoer()
+
+		spyDoer.m["GET:http://some-addr.com/v2/events?results-per-page=1&order-direction=desc&q=actee:some-guid"] = &http.Response{
+			StatusCode: 200,
+			Body: ioutil.NopCloser(strings.NewReader(
+				`{
+				   "resources": [
+					  {
+						 "metadata": {
+							"created_at": "2018-08-31T21:30:51Z",
+							"updated_at": "2018-08-31T21:30:51Z"
+						 },
+						 "entity": {
+							"type": "audit.app.restart"
+						 }
+					  }
+				   ]
+				}`,
+			)),
+		}
+
+		return TC{
+			T:       t,
+			spyDoer: spyDoer,
+			c:       capi.NewClient("http://some-addr.com", "some-id", "space-guid", spyDoer),
+		}
+	})
+
+	o.Spec("it hits CAPI correct", func(t TC) {
+		event, err := t.c.LastEvent(context.Background(), "some-guid")
+		Expect(t, err).To(BeNil())
+
+		t1, err := time.Parse(time.RFC3339, "2018-08-31T21:30:51Z")
+		Expect(t, err).To(BeNil())
+
+		Expect(t, event.Resources).To(HaveLen(1))
+		Expect(t, event.Resources[0].MetaData.CreatedAt).To(Equal(t1))
+		Expect(t, event.Resources[0].MetaData.UpdatedAt).To(Equal(t1))
+		Expect(t, event.Resources[0].Entity.Type).To(Equal("audit.app.restart"))
+	})
+
+	o.Spec("it returns an error if a non-200 is received", func(t TC) {
+		t.spyDoer.m["GET:http://some-addr.com/v2/events?results-per-page=1&order-direction=desc&q=actee:some-guid"] = &http.Response{
+			StatusCode: 500,
+			Body:       ioutil.NopCloser(bytes.NewReader(nil)),
+		}
+		_, err := t.c.LastEvent(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if the request fails", func(t TC) {
+		t.spyDoer.err = errors.New("some-error")
+		_, err := t.c.LastEvent(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it returns an error if the response is invalid JSON", func(t TC) {
+		t.spyDoer.m["GET:http://some-addr.com/v2/events?results-per-page=1&order-direction=desc&q=actee:some-guid"] = &http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(strings.NewReader(`invalid`)),
+		}
+
+		_, err := t.c.LastEvent(context.Background(), "some-guid")
+		Expect(t, err).To(Not(BeNil()))
+	})
+
+	o.Spec("it uses the given context", func(t TC) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		t.c.LastEvent(ctx, "some-guid")
+		Expect(t, t.spyDoer.req.Context().Err()).To(Not(BeNil()))
+	})
+}
+
 func TestProcessStats(t *testing.T) {
 	t.Parallel()
 	o := onpar.New()

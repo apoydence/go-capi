@@ -95,6 +95,18 @@ type Task struct {
 	Links       map[string]Links `json:"links"`
 }
 
+type Event struct {
+	Resources []struct {
+		MetaData struct {
+			CreatedAt time.Time `json:"created_at"`
+			UpdatedAt time.Time `json:"updated_at"`
+		} `json:"metadata"`
+		Entity struct {
+			Type string `json:"type"`
+		} `json:"entity"`
+	} `json:"resources"`
+}
+
 func (c *Client) Processes(ctx context.Context, appGuid string) ([]Process, error) {
 	addr := c.addr
 	var processes []Process
@@ -849,4 +861,43 @@ func (c *Client) Restart(ctx context.Context, appGuid string) error {
 	}
 
 	return nil
+}
+
+func (c *Client) LastEvent(ctx context.Context, appGuid string) (Event, error) {
+	u, err := url.Parse(c.addr)
+	if err != nil {
+		return Event{}, err
+	}
+	u.Path = "/v2/events"
+	u.RawQuery = fmt.Sprintf("results-per-page=1&order-direction=desc&q=actee:%s", appGuid)
+
+	req := &http.Request{
+		URL:    u,
+		Method: "GET",
+		Header: http.Header{},
+	}
+	req = req.WithContext(ctx)
+
+	resp, err := c.doer.Do(req)
+	if err != nil {
+		return Event{}, err
+	}
+
+	defer func(resp *http.Response) {
+		// Fail safe to ensure the clients are being cleaned up
+		io.Copy(ioutil.Discard, resp.Body)
+		resp.Body.Close()
+	}(resp)
+
+	if resp.StatusCode != 200 {
+		data, _ := ioutil.ReadAll(resp.Body)
+		return Event{}, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, data)
+	}
+
+	var e Event
+	if err := json.NewDecoder(resp.Body).Decode(&e); err != nil {
+		return Event{}, err
+	}
+
+	return e, nil
 }
