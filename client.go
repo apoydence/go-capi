@@ -863,6 +863,46 @@ func (c *Client) Restart(ctx context.Context, appGuid string) error {
 	return nil
 }
 
+func (c *Client) Scale(ctx context.Context, appGuid string, instances int) error {
+	if appGuid == "" {
+		appGuid = c.appGuid
+	}
+
+	u, err := url.Parse(c.addr)
+	if err != nil {
+		return err
+	}
+	u.Path = fmt.Sprintf("/v3/processes/%s/actions/scale", appGuid)
+
+	req := &http.Request{
+		URL:    u,
+		Method: http.MethodPost,
+		Body:   ioutil.NopCloser(strings.NewReader(fmt.Sprintf(`{"instances":%d}`, instances))),
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+		},
+	}
+	req = req.WithContext(ctx)
+
+	resp, err := c.doer.Do(req)
+	if err != nil {
+		return err
+	}
+
+	defer func(resp *http.Response) {
+		// Fail safe to ensure the clients are being cleaned up
+		io.Copy(ioutil.Discard, resp.Body)
+		resp.Body.Close()
+	}(resp)
+
+	if resp.StatusCode != http.StatusAccepted {
+		data, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, data)
+	}
+
+	return nil
+}
+
 func (c *Client) LastEvent(ctx context.Context, appGuid string) (Event, error) {
 	u, err := url.Parse(c.addr)
 	if err != nil {
