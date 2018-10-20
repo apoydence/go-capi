@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apoydence/go-capi"
-	"github.com/apoydence/onpar"
-	. "github.com/apoydence/onpar/expect"
-	. "github.com/apoydence/onpar/matchers"
+	"github.com/poy/go-capi"
+	"github.com/poy/onpar"
+	. "github.com/poy/onpar/expect"
+	. "github.com/poy/onpar/matchers"
 )
 
 type TC struct {
